@@ -36,10 +36,12 @@
 
 static char cortexm_driver_str[] = "ARM Cortex-M";
 
-static bool cortexm_vector_catch(target *t, int argc, char *argv[]);
+static bool cortexm_cmd_vector_catch(target *t, int argc, char *argv[]);
+static bool cortexm_cmd_reset(target *t, int argc, char *argv[]);
 
 const struct command_s cortexm_cmd_list[] = {
-	{"vector_catch", (cmd_handler)cortexm_vector_catch, "Catch exception vectors"},
+	{"vector_catch", (cmd_handler)cortexm_cmd_vector_catch, "Catch exception vectors"},
+	{"reset", (cmd_handler)cortexm_cmd_reset, "Reset cortexm MCU"},
 	{NULL, NULL, NULL}
 };
 
@@ -763,7 +765,28 @@ static target_addr cortexm_check_watch(target *t)
 	return target_mem_read32(t, CORTEXM_DWT_COMP(i));
 }
 
-static bool cortexm_vector_catch(target *t, int argc, char *argv[])
+static bool cortexm_cmd_reset(target *t, int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+	/* Read DHCSR here to clear S_RESET_ST bit before reset */
+	target_mem_read32(t, CORTEXM_DHCSR);
+
+	/* Request system reset from NVIC: SRST doesn't work correctly */
+	/* This could be VECTRESET: 0x05FA0001 (reset only core)
+	 *          or SYSRESETREQ: 0x05FA0004 (system reset)
+	 */
+	target_mem_write32(t, CORTEXM_AIRCR,
+	                   CORTEXM_AIRCR_VECTKEY | CORTEXM_AIRCR_SYSRESETREQ);
+
+	/* Poll for release from reset */
+	while (target_mem_read32(t, CORTEXM_DHCSR) & CORTEXM_DHCSR_S_RESET_ST);
+
+    return true;
+}
+
+static bool cortexm_cmd_vector_catch(target *t, int argc, char *argv[])
 {
 	struct cortexm_priv *priv = t->priv;
 	const char *vectors[] = {"reset", NULL, NULL, NULL, "mm", "nocp",
